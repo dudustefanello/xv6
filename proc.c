@@ -6,6 +6,7 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "rand.h"
 
 struct {
   struct spinlock lock;
@@ -85,35 +86,35 @@ allocproc(int bilhetes)
   release(&ptable.lock);
   return 0;
 
-found:
-  p->state = EMBRYO;
-  p->pid = nextpid++;
-  p->bilhetes = bilhetes;
+  found:
+    p->state = EMBRYO;
+    p->pid = nextpid++;
+    p->bilhetes = bilhetes;
 
-  release(&ptable.lock);
+    release(&ptable.lock);
 
-  // Allocate kernel stack.
-  if((p->kstack = kalloc()) == 0){
-    p->state = UNUSED;
-    return 0;
-  }
-  sp = p->kstack + KSTACKSIZE;
+    // Allocate kernel stack.
+    if((p->kstack = kalloc()) == 0){
+      p->state = UNUSED;
+      return 0;
+    }
+    sp = p->kstack + KSTACKSIZE;
 
-  // Leave room for trap frame.
-  sp -= sizeof *p->tf;
-  p->tf = (struct trapframe*)sp;
+    // Leave room for trap frame.
+    sp -= sizeof *p->tf;
+    p->tf = (struct trapframe*)sp;
 
-  // Set up new context to start executing at forkret,
-  // which returns to trapret.
-  sp -= 4;
-  *(uint*)sp = (uint)trapret;
+    // Set up new context to start executing at forkret,
+    // which returns to trapret.
+    sp -= 4;
+    *(uint*)sp = (uint)trapret;
 
-  sp -= sizeof *p->context;
-  p->context = (struct context*)sp;
-  memset(p->context, 0, sizeof *p->context);
-  p->context->eip = (uint)forkret;
+    sp -= sizeof *p->context;
+    p->context = (struct context*)sp;
+    memset(p->context, 0, sizeof *p->context);
+    p->context->eip = (uint)forkret;
 
-  return p;
+    return p;
 }
 
 //PAGEBREAK: 32
@@ -312,6 +313,16 @@ wait(void)
   }
 }
 
+int
+total_bilhetes(void)
+{
+    int result = 0;
+    for(struct proc *p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+        if (p->state == RUNNABLE)
+          result += p->bilhetes;
+    return result;
+}
+
 //PAGEBREAK: 42
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
@@ -325,6 +336,7 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
+  long int sorteado, contador, total;
   c->proc = 0;
   
   for(;;){
@@ -333,9 +345,22 @@ scheduler(void)
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
+
+    // sorteia um entre todos os bilhetes validos
+    contador = 0;
+    total = total_bilhetes();
+    sorteado = random_at_most(total);
+
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
         continue;
+
+      if ((contador + p->bilhetes) < sorteado){
+        contador += p->bilhetes;
+        continue;
+      }
+
+      // cprintf("Sorteado: %d (%d)\n", p->pid, p->bilhetes);
 
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
