@@ -6,7 +6,6 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
-#include "rand.h"
 
 struct {
   struct spinlock lock;
@@ -313,14 +312,29 @@ wait(void)
   }
 }
 
-int
-total_bilhetes(void)
+long
+total_bilhetes()
 {
-    int result = 0;
-    for(struct proc *p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-        if (p->state == RUNNABLE)
-          result += p->bilhetes;
-    return result;
+  int result = 0;
+  for(struct proc *p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    if (p->state == RUNNABLE)
+      result += p->bilhetes;
+  return result;
+}
+
+long
+rand()
+{
+  return 166994525 / (ticks + 1) + 101304223 * ticks;
+}
+
+long
+sortear()
+{
+  long sorteado = rand() % (total_bilhetes() + 1);
+  if (sorteado < 0)
+    sorteado *= -1;
+  return sorteado;
 }
 
 //PAGEBREAK: 42
@@ -336,9 +350,12 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-  long int sorteado, contador, total;
   c->proc = 0;
   
+  // variáveis para a loteria
+  long sorteado;
+  long contador;
+
   for(;;){
     // Enable interrupts on this processor.
     sti();
@@ -348,14 +365,13 @@ scheduler(void)
 
     // sorteia um entre todos os bilhetes validos
     contador = 0;
-    total = total_bilhetes();
-    sorteado = random_at_most(total);
+    sorteado = sortear();
 
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
         continue;
 
-      if ((contador + p->bilhetes) < sorteado){
+      if (((contador + p->bilhetes) < sorteado) || (contador > sorteado)){
         contador += p->bilhetes;
         continue;
       }
@@ -377,7 +393,6 @@ scheduler(void)
       c->proc = 0;
     }
     release(&ptable.lock);
-
   }
 }
 
